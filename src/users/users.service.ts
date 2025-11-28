@@ -74,4 +74,71 @@ export class UsersService {
       },
     });
   }
+
+  async deleteCurrentUser(userId: number, newAuthorId?: number) {
+    return await this.prismaService.$transaction(async (transactionClient) => {
+      const user = await transactionClient.user.findUnique({
+        where: {
+          id: userId,
+        },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User with id ${userId} not found`);
+      }
+
+      if (newAuthorId !== undefined) {
+        const newAuthor = await transactionClient.user.findUnique({
+          where: {
+            id: newAuthorId,
+          },
+        });
+
+        if (!newAuthor) {
+          throw new NotFoundException(
+            `New author with id ${newAuthorId} not found`,
+          );
+        }
+
+        const reassignResult = await transactionClient.article.updateMany({
+          where: {
+            authorId: userId,
+          },
+          data: {
+            authorId: newAuthorId,
+          },
+        });
+
+        await transactionClient.user.delete({
+          where: {
+            id: userId,
+          },
+        });
+
+        return {
+          message: `User ${userId} deleted successfully. ${reassignResult.count} article(s) reassigned to author ${newAuthorId}`,
+          reassignedArticles: reassignResult.count,
+        };
+      } else {
+        const deleteArticlesResult = await transactionClient.article.deleteMany(
+          {
+            where: {
+              authorId: userId,
+            },
+          },
+        );
+
+        await transactionClient.user.delete({
+          where: {
+            id: userId,
+          },
+        });
+
+        return {
+          message: `User ${userId} deleted successfully. ${deleteArticlesResult.count} article(s) deleted`,
+          deletedArticles: deleteArticlesResult.count,
+        };
+      }
+    });
+  }
 }

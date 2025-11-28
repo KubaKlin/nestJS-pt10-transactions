@@ -1,4 +1,12 @@
-import { Body, Controller, Patch, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Patch,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdatePhoneNumberDto } from './update-phone-number.dto';
 import { JwtAuthenticationGuard } from '../authentication/jwt-authentication.guard';
@@ -18,5 +26,15 @@ export class UsersController {
       request.user.id,
       updatePhoneNumberDto,
     );
+  }
+
+  @Delete()
+  @UseGuards(JwtAuthenticationGuard)
+  async deleteCurrentUser(
+    @Req() request: RequestWithUser,
+    @Query('newAuthor') newAuthor?: string,
+  ) {
+    const newAuthorId = newAuthor ? parseInt(newAuthor, 10) : undefined;
+    return this.usersService.deleteCurrentUser(request.user.id, newAuthorId);
   }
 }
