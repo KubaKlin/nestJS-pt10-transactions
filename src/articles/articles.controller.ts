@@ -9,6 +9,7 @@ import {
   Patch,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { ArticlesService } from './articles.service';
 import { CreateArticleDto } from './create-article.dto';
@@ -40,6 +41,11 @@ export class ArticlesController {
   @Get(':id')
   getById(@Param('id', ParseIntPipe) id: number) {
     return this.articlesService.getById(id);
+  }
+
+  @Delete()
+  deleteByUpvotes(@Query('upvotesFewerThan', ParseIntPipe) upvotesFewerThan: number) {
+    return this.articlesService.deleteByUpvotesFewerThan(upvotesFewerThan);
   }
 
   @Delete(':id')
