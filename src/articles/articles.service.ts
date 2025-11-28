@@ -105,4 +105,52 @@ export class ArticlesService {
       throw error;
     }
   }
+
+  async upvote(id: number) {
+    try {
+      return await this.prismaService.article.update({
+        where: {
+          id,
+        },
+        data: {
+          upvotes: {
+            increment: 1,
+          },
+        },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === PrismaError.RecordDoesNotExist
+      ) {
+        throw new ArticleNotFoundException(id);
+      }
+      throw error;
+    }
+  }
+
+  async downvote(id: number) {
+    try {
+      const article = await this.getById(id);
+      
+      return await this.prismaService.article.update({
+        where: {
+          id,
+        },
+        data: {
+          upvotes: {
+            decrement: article.upvotes > 0 ? 1 : 0,
+          },
+        },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === PrismaError.RecordDoesNotExist
+      ) {
+        throw new ArticleNotFoundException(id);
+      }
+      throw error;
+    }
+  }
 }

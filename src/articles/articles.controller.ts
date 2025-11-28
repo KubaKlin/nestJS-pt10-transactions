@@ -85,4 +85,14 @@ export class ArticlesController {
   ) {
     await this.commentsService.delete(commentId);
   }
+
+  @Patch(':id/upvote')
+  upvote(@Param('id', ParseIntPipe) id: number) {
+    return this.articlesService.upvote(id);
+  }
+
+  @Patch(':id/downvote')
+  downvote(@Param('id', ParseIntPipe) id: number) {
+    return this.articlesService.downvote(id);
+  }
 }
