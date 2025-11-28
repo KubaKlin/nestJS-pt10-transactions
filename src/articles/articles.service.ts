@@ -187,4 +187,46 @@ export class ArticlesService {
       };
     });
   }
+
+  async reassignArticles(previousAuthorId: number, newAuthorId: number) {
+    return await this.prismaService.$transaction(async (transactionClient) => {
+      const previousAuthor = await transactionClient.user.findUnique({
+        where: {
+          id: previousAuthorId,
+        },
+      });
+
+      if (!previousAuthor) {
+        throw new NotFoundException(
+          `Previous author with id ${previousAuthorId} not found`,
+        );
+      }
+
+      const newAuthor = await transactionClient.user.findUnique({
+        where: {
+          id: newAuthorId,
+        },
+      });
+
+      if (!newAuthor) {
+        throw new NotFoundException(
+          `New author with id ${newAuthorId} not found`,
+        );
+      }
+
+      const result = await transactionClient.article.updateMany({
+        where: {
+          authorId: previousAuthorId,
+        },
+        data: {
+          authorId: newAuthorId,
+        },
+      });
+
+      return {
+        reassignedCount: result.count,
+        message: `Successfully reassigned ${result.count} article(s) from author ${previousAuthorId} to author ${newAuthorId}`,
+      };
+    });
+  }
 }

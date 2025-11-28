@@ -53,6 +53,14 @@ export class ArticlesController {
     await this.articlesService.delete(id);
   }
 
+  @Patch()
+  reassignArticles(
+    @Query('previousAuthor', ParseIntPipe) previousAuthor: number,
+    @Query('newAuthor', ParseIntPipe) newAuthor: number,
+  ) {
+    return this.articlesService.reassignArticles(previousAuthor, newAuthor);
+  }
+
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
