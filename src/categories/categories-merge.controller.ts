@@ -12,4 +12,3 @@ export class CategoriesMergeController {
     return this.categoriesMergeService.mergeDuplicateCategories();
   }
 }
-

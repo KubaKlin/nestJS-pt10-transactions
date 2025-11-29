@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ArticleDto } from './article.dto';
 import { Prisma } from '../../generated/prisma';
@@ -132,7 +136,7 @@ export class ArticlesService {
   async downvote(id: number) {
     try {
       const article = await this.getById(id);
-      
+
       return await this.prismaService.article.update({
         where: {
           id,

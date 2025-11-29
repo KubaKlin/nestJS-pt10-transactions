@@ -44,7 +44,9 @@ export class ArticlesController {
   }
 
   @Delete()
-  deleteByUpvotes(@Query('upvotesFewerThan', ParseIntPipe) upvotesFewerThan: number) {
+  deleteByUpvotes(
+    @Query('upvotesFewerThan', ParseIntPipe) upvotesFewerThan: number,
+  ) {
     return this.articlesService.deleteByUpvotesFewerThan(upvotesFewerThan);
   }
 
@@ -94,9 +96,7 @@ export class ArticlesController {
 
   @Delete(':articleId/comments/:commentId')
   @UseGuards(JwtAuthenticationGuard)
-  async deleteComment(
-    @Param('commentId', ParseIntPipe) commentId: number,
-  ) {
+  async deleteComment(@Param('commentId', ParseIntPipe) commentId: number) {
     await this.commentsService.delete(commentId);
   }
 
