@@ -135,17 +135,27 @@ export class ArticlesService {
 
   async downvote(id: number) {
     try {
-      const article = await this.getById(id);
-
-      return await this.prismaService.article.update({
-        where: {
-          id,
-        },
-        data: {
-          upvotes: {
-            decrement: article.upvotes > 0 ? 1 : 0,
+      return await this.prismaService.$transaction(async (transactionClient) => {
+        const article = await transactionClient.article.findUnique({
+          where: {
+            id,
           },
-        },
+        });
+
+        if (!article) {
+          throw new ArticleNotFoundException(id);
+        }
+
+        return await transactionClient.article.update({
+          where: {
+            id,
+          },
+          data: {
+            upvotes: {
+              decrement: article.upvotes > 0 ? 1 : 0,
+            },
+          },
+        });
       });
     } catch (error: unknown) {
       if (
