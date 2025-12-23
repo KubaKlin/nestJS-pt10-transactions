@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ArticleDto } from './article.dto';
 import { Prisma } from '../../generated/prisma';
@@ -104,5 +108,139 @@ export class ArticlesService {
       }
       throw error;
     }
+  }
+
+  async upvote(id: number) {
+    try {
+      return await this.prismaService.article.update({
+        where: {
+          id,
+        },
+        data: {
+          upvotes: {
+            increment: 1,
+          },
+        },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === PrismaError.RecordDoesNotExist
+      ) {
+        throw new ArticleNotFoundException(id);
+      }
+      throw error;
+    }
+  }
+
+  async downvote(id: number) {
+    try {
+      return await this.prismaService.$transaction(async (transactionClient) => {
+        const article = await transactionClient.article.findUnique({
+          where: {
+            id,
+          },
+        });
+
+        if (!article) {
+          throw new ArticleNotFoundException(id);
+        }
+
+        return await transactionClient.article.update({
+          where: {
+            id,
+          },
+          data: {
+            upvotes: {
+              decrement: article.upvotes > 0 ? 1 : 0,
+            },
+          },
+        });
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === PrismaError.RecordDoesNotExist
+      ) {
+        throw new ArticleNotFoundException(id);
+      }
+      throw error;
+    }
+  }
+
+  async deleteByUpvotesFewerThan(upvotesThreshold: number) {
+    return await this.prismaService.$transaction(async (transactionClient) => {
+      const articlesToDelete = await transactionClient.article.findMany({
+        where: {
+          upvotes: {
+            lt: upvotesThreshold,
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (articlesToDelete.length === 0) {
+        throw new NotFoundException(
+          `No articles found with upvotes fewer than ${upvotesThreshold}`,
+        );
+      }
+
+      const result = await transactionClient.article.deleteMany({
+        where: {
+          upvotes: {
+            lt: upvotesThreshold,
+          },
+        },
+      });
+
+      return {
+        deletedCount: result.count,
+        message: `Successfully deleted ${result.count} article(s) with upvotes fewer than ${upvotesThreshold}`,
+      };
+    });
+  }
+
+  async reassignArticles(previousAuthorId: number, newAuthorId: number) {
+    return await this.prismaService.$transaction(async (transactionClient) => {
+      const previousAuthor = await transactionClient.user.findUnique({
+        where: {
+          id: previousAuthorId,
+        },
+      });
+
+      if (!previousAuthor) {
+        throw new NotFoundException(
+          `Previous author with id ${previousAuthorId} not found`,
+        );
+      }
+
+      const newAuthor = await transactionClient.user.findUnique({
+        where: {
+          id: newAuthorId,
+        },
+      });
+
+      if (!newAuthor) {
+        throw new NotFoundException(
+          `New author with id ${newAuthorId} not found`,
+        );
+      }
+
+      const result = await transactionClient.article.updateMany({
+        where: {
+          authorId: previousAuthorId,
+        },
+        data: {
+          authorId: newAuthorId,
+        },
+      });
+
+      return {
+        reassignedCount: result.count,
+        message: `Successfully reassigned ${result.count} article(s) from author ${previousAuthorId} to author ${newAuthorId}`,
+      };
+    });
   }
 }

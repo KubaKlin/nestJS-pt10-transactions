@@ -9,6 +9,7 @@ import {
   Patch,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { ArticlesService } from './articles.service';
 import { CreateArticleDto } from './create-article.dto';
@@ -42,9 +43,24 @@ export class ArticlesController {
     return this.articlesService.getById(id);
   }
 
+  @Delete()
+  deleteByUpvotes(
+    @Query('upvotesFewerThan', ParseIntPipe) upvotesFewerThan: number,
+  ) {
+    return this.articlesService.deleteByUpvotesFewerThan(upvotesFewerThan);
+  }
+
   @Delete(':id')
   async delete(@Param('id', ParseIntPipe) id: number) {
     await this.articlesService.delete(id);
+  }
+
+  @Patch()
+  reassignArticles(
+    @Query('previousAuthor', ParseIntPipe) previousAuthor: number,
+    @Query('newAuthor', ParseIntPipe) newAuthor: number,
+  ) {
+    return this.articlesService.reassignArticles(previousAuthor, newAuthor);
   }
 
   @Patch(':id')
@@ -80,9 +96,17 @@ export class ArticlesController {
 
   @Delete(':articleId/comments/:commentId')
   @UseGuards(JwtAuthenticationGuard)
-  async deleteComment(
-    @Param('commentId', ParseIntPipe) commentId: number,
-  ) {
+  async deleteComment(@Param('commentId', ParseIntPipe) commentId: number) {
     await this.commentsService.delete(commentId);
+  }
+
+  @Patch(':id/upvote')
+  upvote(@Param('id', ParseIntPipe) id: number) {
+    return this.articlesService.upvote(id);
+  }
+
+  @Patch(':id/downvote')
+  downvote(@Param('id', ParseIntPipe) id: number) {
+    return this.articlesService.downvote(id);
   }
 }
