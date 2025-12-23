@@ -1,9 +1,56 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
 export class CategoriesMergeService {
   constructor(private readonly prismaService: PrismaService) {}
+
+  private normalizeCategoryName(categoryName: string) {
+    return categoryName.toLowerCase().trim();
+  }
+
+  private async findAllCategoriesForMerge(
+    transactionClient: Prisma.TransactionClient,
+  ) {
+    return await transactionClient.category.findMany({
+      // Sorting by id ensures the "oldest" category is always categories[0] per group.
+      orderBy: {
+        id: 'asc',
+      },
+      select: {
+        id: true,
+        name: true,
+        articles: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+  }
+
+  private groupCategoriesByNormalizedName(
+    categories: Array<{
+      id: number;
+      name: string;
+      articles: Array<{ id: number }>;
+    }>,
+  ) {
+    const categoryGroups = new Map<
+      string,
+      Array<(typeof categories)[number]>
+    >();
+
+    categories.forEach((category) => {
+      const normalizedName = this.normalizeCategoryName(category.name);
+      const existing = categoryGroups.get(normalizedName) || [];
+      existing.push(category);
+      categoryGroups.set(normalizedName, existing);
+    });
+
+    return categoryGroups;
+  }
 
   private getMergedCategories(
     normalizedName: string,
@@ -52,100 +99,128 @@ export class CategoriesMergeService {
     };
   }
 
+  private async connectUniqueArticlesToCanonicalCategory(
+    transactionClient: Prisma.TransactionClient,
+    canonicalCategoryId: number,
+    uniqueArticleIds: number[],
+  ) {
+    if (uniqueArticleIds.length === 0) {
+      return;
+    }
+
+    await transactionClient.category.update({
+      where: {
+        id: canonicalCategoryId,
+      },
+      data: {
+        articles: {
+          connect: uniqueArticleIds.map((id) => ({ id })),
+        },
+      },
+    });
+  }
+
+  private async deleteDuplicateCategories(
+    transactionClient: Prisma.TransactionClient,
+    duplicateCategoryIds: number[],
+  ) {
+    if (duplicateCategoryIds.length === 0) {
+      return;
+    }
+
+    await transactionClient.category.deleteMany({
+      where: {
+        id: {
+          in: duplicateCategoryIds,
+        },
+      },
+    });
+  }
+
+  private async mergeOneCategoryGroup(
+    transactionClient: Prisma.TransactionClient,
+    normalizedName: string,
+    categories: Array<{
+      id: number;
+      name: string;
+      articles: Array<{ id: number }>;
+    }>,
+  ) {
+    const categoriesMergeResult = this.getMergedCategories(
+      normalizedName,
+      categories,
+    );
+
+    if (!categoriesMergeResult) {
+      return null;
+    }
+
+    const {
+      oldestCategory,
+      duplicateCategoryIds,
+      uniqueArticleIds,
+      articlesTransferred,
+    } = categoriesMergeResult;
+
+    await this.connectUniqueArticlesToCanonicalCategory(
+      transactionClient,
+      oldestCategory.id,
+      uniqueArticleIds,
+    );
+
+    await this.deleteDuplicateCategories(transactionClient, duplicateCategoryIds);
+
+    return {
+      categoryName: oldestCategory.name,
+      keptCategoryId: oldestCategory.id,
+      deletedCategoryIds: duplicateCategoryIds,
+      articlesTransferred,
+    };
+  }
+
+  private buildMergeDuplicateCategoriesResponse(
+    mergeResults: Array<{
+      categoryName: string;
+      keptCategoryId: number;
+      deletedCategoryIds: number[];
+      articlesTransferred: number;
+    }>,
+  ) {
+    return {
+      message:
+        mergeResults.length > 0
+          ? `Successfully merged ${mergeResults.length} duplicate category group(s)`
+          : 'No duplicate categories found',
+      mergedCategories: mergeResults,
+      totalMerged: mergeResults.length,
+    };
+  }
+
   async mergeDuplicateCategories() {
     // Run everything in a single transaction to keep the database consistent:
     return await this.prismaService.$transaction(async (transactionClient) => {
-      // Fetch all categories along with their article relations.
-      // Sorting by id ensures the "oldest" category is always categories[0] per group.
-      const allCategories = await transactionClient.category.findMany({
-        orderBy: {
-          id: 'asc',
-        },
-        include: {
-          articles: {
-            select: {
-              id: true,
-            },
-          },
-        },
-      });
+      const allCategories =
+        await this.findAllCategoriesForMerge(transactionClient);
 
       // Group categories by a normalized version of their name so find duplicates.
-      const categoryGroups = new Map<
-        string,
-        Array<(typeof allCategories)[number]>
-      >();
-
-      allCategories.forEach((category) => {
-        // Normalize the name
-        const normalizedName = category.name.toLowerCase().trim();
-        const existing = categoryGroups.get(normalizedName) || [];
-        existing.push(category);
-        categoryGroups.set(normalizedName, existing);
-      });
+      const categoryGroups = this.groupCategoriesByNormalizedName(allCategories);
 
       // Collect a report of all merges performed in this run.
       const mergeResults = [];
 
       // Merge each group independently.
       for (const [normalizedName, categories] of categoryGroups.entries()) {
-        const categoriesMergeResult = this.getMergedCategories(
+        const mergeResult = await this.mergeOneCategoryGroup(
+          transactionClient,
           normalizedName,
           categories,
         );
-        if (!categoriesMergeResult) {
-          continue;
+        if (mergeResult) {
+          mergeResults.push(mergeResult);
         }
-
-        // Extract computed merge data for readability.
-        const {
-          oldestCategory,
-          duplicateCategoryIds,
-          uniqueArticleIds,
-          articlesTransferred,
-        } = categoriesMergeResult;
-
-        // Connect any missing articles from duplicates onto the canonical category.
-        if (uniqueArticleIds.length > 0) {
-          await transactionClient.category.update({
-            where: {
-              id: oldestCategory.id,
-            },
-            data: {
-              articles: {
-                connect: uniqueArticleIds.map((id) => ({ id })),
-              },
-            },
-          });
-        }
-
-        // Delete duplicate categories now that article relations have been transferred.
-        await transactionClient.category.deleteMany({
-          where: {
-            id: {
-              in: duplicateCategoryIds,
-            },
-          },
-        });
-
-        // Save a human-friendly summary for this merged group.
-        mergeResults.push({
-          categoryName: oldestCategory.name,
-          keptCategoryId: oldestCategory.id,
-          deletedCategoryIds: duplicateCategoryIds,
-          articlesTransferred,
-        });
       }
 
-      // Return response payload.
-      return {
-        message:
-          mergeResults.length > 0
-            ? `Successfully merged ${mergeResults.length} duplicate category group(s)`
-            : 'No duplicate categories found',
-        mergedCategories: mergeResults,
-        totalMerged: mergeResults.length,
-      };
+      return this.buildMergeDuplicateCategoriesResponse(mergeResults);
     });
   }
 }
